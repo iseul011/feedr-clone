@@ -7,3 +7,5 @@
 ## 개발 워크플로우
 
 - PR을 열면 GitHub Actions에서 Claude가 자동으로 코드 리뷰를 수행합니다 (`.github/workflows/claude-code-review.yml`).
+
+test: claude auto review
