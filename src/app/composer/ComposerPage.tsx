@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { Sparkles } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
+import { aiAssist } from '../../lib/api'
 import type { Channel } from '../../lib/types'
+import { PROVIDER_LABELS } from '../../lib/types'
 import SnsIcon from '../../marketing/SnsIcon'
 
 const card = {
@@ -50,6 +53,10 @@ export default function ComposerPage() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const [aiTopic, setAiTopic] = useState('')
+  const [aiResult, setAiResult] = useState('')
+  const [aiError, setAiError] = useState('')
+  const [aiBusy, setAiBusy] = useState(false)
 
   useEffect(() => {
     supabase
@@ -81,6 +88,33 @@ export default function ComposerPage() {
     if (next.has(id)) next.delete(id)
     else next.add(id)
     setSelected(next)
+  }
+
+  const selectedLabels = () =>
+    channels
+      .filter((c) => selected.has(c.id))
+      .map((c) => PROVIDER_LABELS[c.provider])
+      .join(', ')
+
+  const runAi = async (kind: 'idea' | 'repurpose') => {
+    setAiError('')
+    if (kind === 'idea' && !aiTopic.trim()) return setAiError('주제를 입력해주세요.')
+    if (kind === 'repurpose' && !body.trim()) return setAiError('먼저 본문을 작성해주세요.')
+    if (kind === 'repurpose' && selected.size === 0)
+      return setAiError('변환할 대상 채널을 선택해주세요.')
+    setAiBusy(true)
+    try {
+      const prompt =
+        kind === 'idea'
+          ? `주제: ${aiTopic.trim()}${selected.size ? `\n대상 채널: ${selectedLabels()}` : ''}`
+          : `대상 채널: ${selectedLabels()}\n\n원본:\n${title.trim() ? `${title.trim()}\n` : ''}${body.trim()}`
+      const { text } = await aiAssist(kind, prompt)
+      setAiResult(text)
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setAiBusy(false)
+    }
   }
 
   const submit = async () => {
@@ -176,6 +210,91 @@ export default function ComposerPage() {
         />
         <label style={{ ...label, marginTop: '16px' }}>미디어 (선택)</label>
         <input ref={fileRef} type="file" accept="video/*,image/*" style={{ fontSize: '14px' }} />
+      </div>
+
+      <div style={card}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+          <Sparkles size={16} color="var(--color-primary)" />
+          <span style={{ fontSize: '14px', fontWeight: 700 }}>AI 어시스트</span>
+        </div>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <input
+            style={{ ...input, flex: 1, minWidth: '180px' }}
+            placeholder="아이디어 주제 (예: 카페 브이로그)"
+            value={aiTopic}
+            onChange={(e) => setAiTopic(e.target.value)}
+          />
+          <button
+            type="button"
+            onClick={() => runAi('idea')}
+            disabled={aiBusy}
+            style={{
+              padding: '10px 16px',
+              border: '1px solid var(--color-primary)',
+              color: 'var(--color-primary)',
+              borderRadius: 'var(--radius-sm)',
+              fontSize: '14px',
+              fontWeight: 700,
+              opacity: aiBusy ? 0.6 : 1,
+            }}
+          >
+            아이디어 받기
+          </button>
+          <button
+            type="button"
+            onClick={() => runAi('repurpose')}
+            disabled={aiBusy}
+            style={{
+              padding: '10px 16px',
+              border: '1px solid var(--color-primary)',
+              color: 'var(--color-primary)',
+              borderRadius: 'var(--radius-sm)',
+              fontSize: '14px',
+              fontWeight: 700,
+              opacity: aiBusy ? 0.6 : 1,
+            }}
+          >
+            채널 맞춤 변환
+          </button>
+        </div>
+        {aiBusy && (
+          <p style={{ fontSize: '13px', color: 'var(--color-muted)', marginTop: '10px' }}>
+            생성 중…
+          </p>
+        )}
+        {aiError && (
+          <p style={{ fontSize: '13px', color: '#DC2626', marginTop: '10px' }}>{aiError}</p>
+        )}
+        {aiResult && (
+          <div style={{ marginTop: '12px' }}>
+            <div
+              style={{
+                background: 'var(--color-primary-light)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '14px',
+                fontSize: '14px',
+                whiteSpace: 'pre-wrap',
+                lineHeight: 1.7,
+                maxHeight: '260px',
+                overflowY: 'auto',
+              }}
+            >
+              {aiResult}
+            </div>
+            <button
+              type="button"
+              onClick={() => setBody(aiResult)}
+              style={{
+                marginTop: '8px',
+                fontSize: '13px',
+                fontWeight: 700,
+                color: 'var(--color-primary)',
+              }}
+            >
+              본문으로 사용
+            </button>
+          </div>
+        )}
       </div>
 
       <div style={card}>

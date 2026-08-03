@@ -1,11 +1,12 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { Calendar, LayoutList, PenSquare, Radio, LogOut } from 'lucide-react'
+import { Calendar, ChartColumn, LayoutList, PenSquare, Radio, LogOut } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 
 const NAV = [
   { to: '/app/composer', label: '새 포스트', icon: PenSquare },
   { to: '/app/queue', label: '대기열', icon: LayoutList },
   { to: '/app/calendar', label: '캘린더', icon: Calendar },
+  { to: '/app/analytics', label: '분석', icon: ChartColumn },
   { to: '/app/channels', label: '채널', icon: Radio },
 ]
 

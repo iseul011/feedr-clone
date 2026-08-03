@@ -13,6 +13,7 @@ import ChannelsPage from './app/channels/ChannelsPage'
 import ComposerPage from './app/composer/ComposerPage'
 import QueuePage from './app/queue/QueuePage'
 import CalendarPage from './app/calendar/CalendarPage'
+import AnalyticsPage from './app/analytics/AnalyticsPage'
 
 export default function App() {
   return (
@@ -33,6 +34,7 @@ export default function App() {
             <Route path="composer" element={<ComposerPage />} />
             <Route path="queue" element={<QueuePage />} />
             <Route path="calendar" element={<CalendarPage />} />
+            <Route path="analytics" element={<AnalyticsPage />} />
             <Route path="channels" element={<ChannelsPage />} />
           </Route>
         </Routes>

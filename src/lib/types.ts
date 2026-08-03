@@ -55,6 +55,13 @@ export interface PostTarget {
   created_at: string
 }
 
+export interface AnalyticsSnapshot {
+  channel_id: string
+  captured_at: string
+  followers: number
+  metrics: Record<string, number>
+}
+
 export const STATUS_LABELS: Record<TargetStatus, string> = {
   draft: '임시저장',
   queued: '예약됨',
