@@ -19,6 +19,7 @@ function fmt(iso: string): string {
 }
 
 const BADGE: Record<string, { fg: string; bg: string; label: string }> = {
+  draft: { fg: '#7C3AED', bg: '#F5F3FF', label: '승인 대기' },
   queued: { fg: '#3B5BDB', bg: '#EEF2FF', label: '예약됨' },
   publishing: { fg: '#D97706', bg: '#FFFBEB', label: '발행 중' },
   published: { fg: '#16A34A', bg: '#F0FDF4', label: '발행 완료' },
@@ -66,7 +67,13 @@ export default function QueuePage() {
     load()
   }
 
+  const approve = async (id: string) => {
+    await supabase.from('post_targets').update({ status: 'queued' }).eq('id', id)
+    load()
+  }
+
   const sections: { heading: string; items: Row[] }[] = [
+    { heading: '승인 대기', items: rows.filter((r) => r.status === 'draft') },
     { heading: '예약됨', items: rows.filter((r) => r.status === 'queued' || r.status === 'publishing') },
     { heading: '발행 완료', items: rows.filter((r) => r.status === 'published') },
     { heading: '실패', items: rows.filter((r) => r.status === 'failed') },
@@ -182,7 +189,15 @@ export default function QueuePage() {
                           보기 →
                         </a>
                       )}
-                      {row.status === 'queued' && (
+                      {row.status === 'draft' && (
+                        <button
+                          style={{ fontSize: '13px', color: 'var(--color-primary)', fontWeight: 600, background: 'none', flexShrink: 0 }}
+                          onClick={() => approve(row.id)}
+                        >
+                          승인
+                        </button>
+                      )}
+                      {(row.status === 'queued' || row.status === 'draft') && (
                         <button
                           style={{ fontSize: '13px', color: 'var(--color-muted)', background: 'none', flexShrink: 0 }}
                           onClick={() => cancel(row.id)}

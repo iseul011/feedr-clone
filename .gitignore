@@ -23,3 +23,7 @@ dist-ssr
 *.sln
 *.sw?
 .env
+
+# 로컬 전용
+.claude/
+test-video.mp4

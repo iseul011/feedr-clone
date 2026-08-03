@@ -6,7 +6,7 @@
 
 - **프론트**: React + Vite + TypeScript (인라인 스타일, Pretendard, `#3B5BDB`)
 - **백엔드**: Supabase — Postgres(발행 큐), Auth, Storage(`media` 버킷), Edge Functions, pg_cron
-- **오토파일럿**(4단계): Python + deepagents + FastAPI (별도 컨테이너)
+- **오토파일럿**(4단계): Edge Function `autopilot-runner` — Claude SDK toolRunner 기반 자율 에이전트 (별도 인프라 없음)
 
 ## 실행
 
@@ -26,14 +26,16 @@ VITE_SUPABASE_KEY=...   # publishable key
 
 1. 마이그레이션 적용: `supabase/migrations/` 순서대로 (MCP `apply_migration` 또는 CLI)
 2. Storage 버킷 `media` 생성 (private)
-3. Edge Functions 배포: `oauth-start`, `oauth-callback`(verify_jwt=false), `publish-runner`, `ai-assist`, `analytics-sync`
+3. Edge Functions 배포: `oauth-start`, `oauth-callback`(verify_jwt=false), `publish-runner`, `ai-assist`, `analytics-sync`, `autopilot-runner`
+   - `autopilot-runner`는 verify_jwt 기본값(true)을 유지할 것 — 크론 경로(body 없음)가 전 채널을 무인증 로직으로 돌기 때문에 JWT 검증이 유일한 방어선
+
 4. Edge Function 시크릿:
    - `TOKEN_ENC_KEY` — base64 32바이트 (`openssl rand -base64 32`)
    - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — Google Cloud OAuth 클라이언트
    - `THREADS_APP_ID` / `THREADS_APP_SECRET` — Meta 개발자 앱
    - `APP_URL` — 프론트 주소 (예: http://localhost:5173)
-   - `ANTHROPIC_API_KEY` — AI 어시스트용 (Claude API)
-5. pg_cron: 1분마다 `publish-runner`(`0003`), 매일 `analytics-sync`(`0005`) — 두 파일 모두 `<PROJECT_REF>`/`<SERVICE_ROLE_KEY>` 치환 후 적용
+   - `ANTHROPIC_API_KEY` — AI 어시스트 + 오토파일럿 공용 (Claude API)
+5. pg_cron: 1분마다 `publish-runner`(`0003`), 매일 `analytics-sync`(`0005`)·`autopilot-runner`(`0008`) — 세 파일 모두 `<PROJECT_REF>`/`<SERVICE_ROLE_KEY>` 치환 후 적용
 
 ## 플랫폼 API 제약 (중요)
 
@@ -48,4 +50,13 @@ VITE_SUPABASE_KEY=...   # publishable key
 ## 개발 워크플로우
 
 - PR을 열면 GitHub Actions에서 Claude가 자동으로 코드 리뷰를 수행합니다 (`.github/workflows/claude-code-review.yml`).
-- Edge Function 테스트: `deno test --allow-env supabase/functions/_shared/crypto.test.ts`
+- Edge Function 테스트: `deno test --allow-env supabase/functions/_shared/crypto.test.ts supabase/functions/_shared/autopilot.test.ts`
+
+## 오토파일럿 (4단계)
+
+채널별로 켜는 자율 성장 에이전트. `/app/autopilot`에서 브랜드·페르소나·모드를 설정한다.
+
+- **approve 모드(기본)**: 에이전트가 만든 글은 `draft`로 저장 → 대기열 '승인 대기' 섹션에서 승인해야 발행
+- **auto 모드**: 예약이 그대로 큐에 들어가 자동 발행
+- 가드는 프롬프트가 아니라 코드로 강제 (`_shared/autopilot.ts`): 예약은 최소 30분 뒤, 실행당 생성 상한 1~5개
+- 실행 기록(`autopilot_runs`)에 보고서와 도구 호출 내역이 남는다. 트리거는 "지금 실행" 버튼 또는 매일 크론(`0008`)

@@ -62,6 +62,29 @@ export interface AnalyticsSnapshot {
   metrics: Record<string, number>
 }
 
+export interface AutopilotSettings {
+  channel_id: string
+  user_id: string
+  enabled: boolean
+  mode: 'approve' | 'auto'
+  brand_name: string
+  persona: string
+  max_posts_per_run: number
+  updated_at: string
+}
+
+export interface AutopilotRun {
+  id: string
+  channel_id: string
+  user_id: string
+  started_at: string
+  finished_at: string | null
+  status: 'running' | 'succeeded' | 'failed'
+  report: string | null
+  actions: { tool: string; input: unknown; result: string }[]
+  error: string | null
+}
+
 export const STATUS_LABELS: Record<TargetStatus, string> = {
   draft: '임시저장',
   queued: '예약됨',
