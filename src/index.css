@@ -1,0 +1,61 @@
+@import "https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css";
+
+:root {
+  --color-primary: #3B5BDB;
+  --color-primary-dark: #2F4AC7;
+  --color-primary-light: #EEF2FF;
+  --color-text: #111827;
+  --color-muted: #6B7280;
+  --color-border: #E5E7EB;
+  --color-bg: #FFFFFF;
+  --color-bg-gray: #F9FAFB;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --font: "Pretendard", -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font);
+  color: var(--color-text);
+  background: var(--color-bg);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  text-decoration: none;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  font-family: var(--font);
+  border: none;
+  outline: none;
+}
+
+img {
+  max-width: 100%;
+}
+
+@media (max-width: 640px) {
+  .desktop-menu {
+    display: none !important;
+  }
+  .mobile-menu-btn {
+    display: flex !important;
+  }
+}
+
+@media (min-width: 641px) {
+  .mobile-drawer,
+  .mobile-menu-btn {
+    display: none !important;
+  }
+}
