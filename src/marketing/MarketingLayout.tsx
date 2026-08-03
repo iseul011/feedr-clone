@@ -66,6 +66,9 @@ export function Header() {
           <a href="/blog" style={linkStyle(false)}>
             블로그
           </a>
+          <Link to="/login" style={{ ...linkStyle(pathname === '/login'), marginLeft: '8px' }}>
+            로그인
+          </Link>
           <Link
             to="/pricing"
             style={{
@@ -135,6 +138,13 @@ export function Header() {
           >
             블로그
           </a>
+          <Link
+            to="/login"
+            style={{ ...linkStyle(pathname === '/login'), padding: '12px 14px', display: 'block' }}
+            onClick={() => setOpen(false)}
+          >
+            로그인
+          </Link>
           <Link
             to="/pricing"
             style={{
