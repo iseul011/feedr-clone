@@ -26,13 +26,14 @@ VITE_SUPABASE_KEY=...   # publishable key
 
 1. 마이그레이션 적용: `supabase/migrations/` 순서대로 (MCP `apply_migration` 또는 CLI)
 2. Storage 버킷 `media` 생성 (private)
-3. Edge Functions 배포: `oauth-start`, `oauth-callback`(verify_jwt=false), `publish-runner`
+3. Edge Functions 배포: `oauth-start`, `oauth-callback`(verify_jwt=false), `publish-runner`, `ai-assist`, `analytics-sync`
 4. Edge Function 시크릿:
    - `TOKEN_ENC_KEY` — base64 32바이트 (`openssl rand -base64 32`)
    - `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — Google Cloud OAuth 클라이언트
    - `THREADS_APP_ID` / `THREADS_APP_SECRET` — Meta 개발자 앱
    - `APP_URL` — 프론트 주소 (예: http://localhost:5173)
-5. pg_cron: 1분마다 `publish-runner` 호출 (`0003` 참고 예정)
+   - `ANTHROPIC_API_KEY` — AI 어시스트용 (Claude API)
+5. pg_cron: 1분마다 `publish-runner`(`0003`), 매일 `analytics-sync`(`0005`) — 두 파일 모두 `<PROJECT_REF>`/`<SERVICE_ROLE_KEY>` 치환 후 적용
 
 ## 플랫폼 API 제약 (중요)
 
