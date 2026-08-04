@@ -39,7 +39,7 @@ export const threads: Provider = {
     const p = new URLSearchParams({
       client_id: env('THREADS_APP_ID'),
       redirect_uri: redirectUri,
-      scope: 'threads_basic,threads_content_publish',
+      scope: 'threads_basic,threads_content_publish,threads_manage_insights',
       response_type: 'code',
       state,
     })
@@ -119,13 +119,57 @@ export const threads: Provider = {
 
   async fetchChannelStats(t) {
     const me = await graphFetch(`/v1.0/me?fields=id&access_token=${t.accessToken}`)
-    const data = await graphFetch(
-      `/v1.0/${me.id}/threads_insights?metric=followers_count,views,likes&access_token=${t.accessToken}`,
+    const now = Math.floor(Date.now() / 1000)
+    const since = now - 30 * 86400
+
+    // 누적 참여 지표 (lifetime totals) + 팔로워
+    const totals = await graphFetch(
+      `/v1.0/${me.id}/threads_insights?metric=followers_count,likes,replies,reposts,quotes&access_token=${t.accessToken}`,
     ).catch(() => ({ data: [] }))
-    const metrics: Record<string, number> = {}
-    for (const m of (data.data as { name: string; total_value?: { value: number } }[]) ?? []) {
+    // 일별 조회수 시계열 (최근 30일) — views는 총계가 아니라 시계열로만 제공된다
+    const viewsRes = await graphFetch(
+      `/v1.0/${me.id}/threads_insights?metric=views&since=${since}&until=${now}&access_token=${t.accessToken}`,
+    ).catch(() => ({ data: [] }))
+
+    const metrics: Record<string, unknown> = {}
+    for (const m of (totals.data as { name: string; total_value?: { value: number } }[]) ?? []) {
       metrics[m.name] = m.total_value?.value ?? 0
     }
-    return { followers: metrics.followers_count ?? 0, metrics }
+    const followers = Number(metrics.followers_count ?? 0)
+    delete metrics.followers_count
+
+    const series: Record<string, number> = {}
+    let viewsTotal = 0
+    for (const m of (viewsRes.data as {
+      name: string
+      values?: { value?: number; end_time?: string }[]
+    }[]) ?? []) {
+      for (const v of m.values ?? []) {
+        const day = String(v.end_time ?? '').slice(0, 10)
+        if (!day) continue
+        const n = Number(v.value ?? 0)
+        series[day] = n
+        viewsTotal += n
+      }
+    }
+    metrics.views = viewsTotal // 최근 30일 합계
+    metrics.views_series = series // 일별 조회수 (프런트 차트용)
+    return { followers, metrics }
+  },
+
+  // 게시물 단위 인사이트 — threads_manage_insights 권한 필요
+  async fetchPostInsights(t, providerPostId) {
+    const data = await graphFetch(
+      `/v1.0/${providerPostId}/insights?metric=views,likes,replies,reposts,quotes,shares&access_token=${t.accessToken}`,
+    )
+    const out: Record<string, number> = {}
+    for (const m of (data.data as {
+      name: string
+      total_value?: { value: number }
+      values?: { value?: number }[]
+    }[]) ?? []) {
+      out[m.name] = m.total_value?.value ?? m.values?.[0]?.value ?? 0
+    }
+    return out
   },
 }
