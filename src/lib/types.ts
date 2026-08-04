@@ -55,11 +55,32 @@ export interface PostTarget {
   created_at: string
 }
 
+export interface ChannelMetrics {
+  views?: number // 최근 30일 조회 합계
+  likes?: number // 누적
+  replies?: number
+  reposts?: number
+  quotes?: number
+  views_series?: Record<string, number> // 일별 조회수 (YYYY-MM-DD → n)
+}
+
 export interface AnalyticsSnapshot {
   channel_id: string
   captured_at: string
   followers: number
-  metrics: Record<string, number>
+  metrics: ChannelMetrics
+}
+
+export interface PostInsight {
+  target_id: string
+  channel_id: string
+  captured_at: string
+  views: number
+  likes: number
+  replies: number
+  reposts: number
+  quotes: number
+  shares: number
 }
 
 export interface AutopilotSettings {

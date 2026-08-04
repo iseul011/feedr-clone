@@ -39,7 +39,9 @@ export interface Provider {
   exchangeCode(code: string, redirectUri: string): Promise<TokenSet & AccountInfo>
   refresh(t: TokenSet): Promise<TokenSet>
   publish(t: TokenSet, input: PublishInput): Promise<PublishResult>
-  fetchChannelStats?(t: TokenSet): Promise<{ followers: number; metrics: Record<string, number> }>
+  fetchChannelStats?(t: TokenSet): Promise<{ followers: number; metrics: Record<string, unknown> }>
+  // 게시물 단위 인사이트 (조회·좋아요·답글·리포스트·인용·공유)
+  fetchPostInsights?(t: TokenSet, providerPostId: string): Promise<Record<string, number>>
 }
 
 // 인증 오류(재연동 필요) 표시용 — 러너가 재시도 없이 채널을 expired 처리

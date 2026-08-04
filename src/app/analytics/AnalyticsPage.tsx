@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Sparkles } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { aiAssist } from '../../lib/api'
-import type { AnalyticsSnapshot, Channel } from '../../lib/types'
+import type { AnalyticsSnapshot, Channel, PostInsight } from '../../lib/types'
 import { PROVIDER_LABELS } from '../../lib/types'
 import SnsIcon from '../../marketing/SnsIcon'
 
@@ -99,6 +99,24 @@ interface ExperimentSide {
   likes: number
   likesPerPost: number
   followerDelta: number
+  engagementRate: number // (좋아요+답글+리포스트+인용) / 조회 × 100
+}
+
+// post_insights 조인 행 (게시물 성과 테이블·비교 집계용)
+type InsightRow = PostInsight & {
+  post_targets: { published_at: string | null; posts: { title: string; body: string } | null } | null
+}
+
+// 타깃별 최신 스냅샷만 남긴다 (captured_at 내림차순 입력 전제)
+function latestPerTarget(rows: InsightRow[]): InsightRow[] {
+  const seen = new Set<string>()
+  const out: InsightRow[] = []
+  for (const r of rows) {
+    if (seen.has(r.target_id)) continue
+    seen.add(r.target_id)
+    out.push(r)
+  }
+  return out
 }
 
 // 비교할 지표 3종 — 각 그룹이 독립 스케일(단위가 달라 축을 공유하지 않는다)
@@ -122,6 +140,13 @@ const METRICS: {
     unit: '좋아요/글',
     value: (s) => s.likesPerPost,
     fmt: (v) => (v >= 10 ? Math.round(v).toLocaleString() : v.toFixed(1)),
+  },
+  {
+    key: 'engagement',
+    label: '참여율 (좋아요+답글+리포스트+인용 ÷ 조회)',
+    unit: '%',
+    value: (s) => s.engagementRate,
+    fmt: (v) => v.toFixed(1),
   },
   {
     key: 'followers',
@@ -257,6 +282,84 @@ function ExperimentCompare({ sides }: { sides: ExperimentSide[] }) {
   )
 }
 
+// 일별 조회수 미니 바차트 — 최근 14일, 호버 시 날짜·수치 툴팁
+function DailyViewsBars({ series, color }: { series: Record<string, number>; color: string }) {
+  const [hover, setHover] = useState<number | null>(null)
+  const days = Object.keys(series).sort().slice(-14)
+  if (days.length === 0) return null
+  const max = Math.max(...days.map((d) => series[d]), 1)
+  return (
+    <div style={{ marginTop: '12px' }}>
+      <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-muted)', marginBottom: '6px' }}>
+        일별 조회수 (최근 {days.length}일)
+      </div>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: '3px', height: '56px', position: 'relative' }}>
+        {days.map((d, i) => (
+          <div
+            key={d}
+            style={{ flex: 1, height: '100%', display: 'flex', alignItems: 'flex-end', position: 'relative' }}
+            onMouseEnter={() => setHover(i)}
+            onMouseLeave={() => setHover(null)}
+          >
+            <div
+              style={{
+                width: '100%',
+                height: `${Math.max((series[d] / max) * 100, series[d] > 0 ? 4 : 1)}%`,
+                background: color,
+                opacity: hover === null || hover === i ? 1 : 0.45,
+                borderRadius: '3px 3px 0 0',
+              }}
+            />
+            {hover === i && (
+              <div
+                style={{
+                  position: 'absolute',
+                  bottom: '100%',
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  background: 'var(--color-text)',
+                  color: '#fff',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  padding: '3px 8px',
+                  borderRadius: '6px',
+                  whiteSpace: 'nowrap',
+                  pointerEvents: 'none',
+                  zIndex: 1,
+                }}
+              >
+                {fmtDate(d)} · {series[d].toLocaleString()} 조회
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// 채널 누적 참여 칩 — 값이 있는 지표만 렌더
+function MetricChips({ metrics }: { metrics: AnalyticsSnapshot['metrics'] }) {
+  const items: [string, number | undefined][] = [
+    ['30일 조회', metrics.views],
+    ['누적 좋아요', metrics.likes],
+    ['누적 답글', metrics.replies],
+    ['누적 리포스트', metrics.reposts],
+    ['누적 인용', metrics.quotes],
+  ]
+  const present = items.filter(([, v]) => typeof v === 'number')
+  if (present.length === 0) return null
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 14px', marginTop: '10px' }}>
+      {present.map(([label, v]) => (
+        <span key={label} style={{ fontSize: '12px', color: 'var(--color-muted)' }}>
+          {label} <strong style={{ color: 'var(--color-text)', fontWeight: 700 }}>{(v as number).toLocaleString()}</strong>
+        </span>
+      ))}
+    </div>
+  )
+}
+
 function ChannelCard({ channel, points }: { channel: Channel; points: AnalyticsSnapshot[] }) {
   const latest = points[points.length - 1]
   const first = points[0]
@@ -295,6 +398,10 @@ function ChannelCard({ channel, points }: { channel: Channel; points: AnalyticsS
             )}
           </div>
           <Sparkline points={points} color={channel.color} />
+          {latest.metrics.views_series && (
+            <DailyViewsBars series={latest.metrics.views_series} color={channel.color} />
+          )}
+          <MetricChips metrics={latest.metrics} />
           <details style={{ marginTop: '10px' }}>
             <summary style={{ fontSize: '13px', color: 'var(--color-muted)', cursor: 'pointer' }}>
               표로 보기
@@ -320,10 +427,86 @@ function ChannelCard({ channel, points }: { channel: Channel; points: AnalyticsS
   )
 }
 
+// 게시물별 성과 — 조회수 상위 10개
+function TopPosts({ rows, channels }: { rows: InsightRow[]; channels: Channel[] }) {
+  if (rows.length === 0) return null
+  const top = [...rows].sort((a, b) => b.views - a.views).slice(0, 10)
+  const th = {
+    fontSize: '12px',
+    fontWeight: 700,
+    color: 'var(--color-muted)',
+    textAlign: 'right' as const,
+    padding: '6px 0 6px 14px',
+    whiteSpace: 'nowrap' as const,
+  }
+  const td = { fontSize: '13px', textAlign: 'right' as const, padding: '7px 0 7px 14px' }
+  return (
+    <div style={{ ...card, marginBottom: '16px', overflowX: 'auto' }}>
+      <div style={{ fontWeight: 700, fontSize: '15px', marginBottom: '4px' }}>게시물 성과 TOP 10</div>
+      <p style={{ fontSize: '12px', color: 'var(--color-muted)', marginBottom: '10px' }}>
+        리포스트·인용이 높을수록 팔로워 밖으로 퍼진 글입니다. (Threads API는 팔로워/비팔로워 열람
+        구분과 프로필 방문 수는 제공하지 않아요)
+      </p>
+      <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '640px' }}>
+        <thead>
+          <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
+            <th style={{ ...th, textAlign: 'left', paddingLeft: 0 }}>글</th>
+            <th style={{ ...th, textAlign: 'left' }}>발행일</th>
+            <th style={th}>조회</th>
+            <th style={th}>좋아요</th>
+            <th style={th}>답글</th>
+            <th style={th}>리포스트</th>
+            <th style={th}>인용</th>
+            <th style={th}>공유</th>
+          </tr>
+        </thead>
+        <tbody>
+          {top.map((r) => {
+            const ch = channels.find((c) => c.id === r.channel_id)
+            const title =
+              r.post_targets?.posts?.title || r.post_targets?.posts?.body?.slice(0, 40) || '(내용 없음)'
+            return (
+              <tr key={r.target_id} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                <td style={{ ...td, textAlign: 'left', paddingLeft: 0, maxWidth: '260px' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                    <span
+                      style={{
+                        width: '8px',
+                        height: '8px',
+                        borderRadius: '50%',
+                        background: ch?.color ?? 'var(--color-muted)',
+                        flexShrink: 0,
+                      }}
+                      title={ch?.display_name}
+                    />
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {title}
+                    </span>
+                  </span>
+                </td>
+                <td style={{ ...td, textAlign: 'left', color: 'var(--color-muted)', whiteSpace: 'nowrap' }}>
+                  {r.post_targets?.published_at ? fmtDate(r.post_targets.published_at) : '—'}
+                </td>
+                <td style={{ ...td, fontWeight: 700 }}>{r.views.toLocaleString()}</td>
+                <td style={td}>{r.likes.toLocaleString()}</td>
+                <td style={td}>{r.replies.toLocaleString()}</td>
+                <td style={td}>{r.reposts.toLocaleString()}</td>
+                <td style={td}>{r.quotes.toLocaleString()}</td>
+                <td style={td}>{r.shares.toLocaleString()}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 export default function AnalyticsPage() {
   const [channels, setChannels] = useState<Channel[] | null>(null)
   const [snapshots, setSnapshots] = useState<AnalyticsSnapshot[]>([])
   const [sides, setSides] = useState<ExperimentSide[]>([])
+  const [insights, setInsights] = useState<InsightRow[]>([])
   const [advice, setAdvice] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -339,13 +522,20 @@ export default function AnalyticsPage() {
         .order('captured_at', { ascending: true }),
       supabase.from('autopilot_settings').select('channel_id, mode'),
       supabase.from('post_targets').select('channel_id').eq('status', 'published'),
-    ]).then(([ch, snap, st, pub]) => {
+      supabase
+        .from('post_insights')
+        .select('*, post_targets(published_at, posts(title, body))')
+        .order('captured_at', { ascending: false }),
+    ]).then(([ch, snap, st, pub, ins]) => {
       const channelList = (ch.data as Channel[]) ?? []
       const snapList = (snap.data as AnalyticsSnapshot[]) ?? []
+      const insightList = latestPerTarget((ins.data as InsightRow[]) ?? [])
       setChannels(channelList)
       setSnapshots(snapList)
+      setInsights(insightList)
 
       // 실험 비교: 오토파일럿이 설정된 채널을 모드별로 집계 (모드당 첫 채널)
+      // 조회·좋아요·참여율은 게시물 인사이트 합계 기준 (채널 지표보다 정확)
       const settings = (st.data as { channel_id: string; mode: 'auto' | 'approve' }[]) ?? []
       const published = (pub.data as { channel_id: string }[]) ?? []
       const built: ExperimentSide[] = []
@@ -356,8 +546,11 @@ export default function AnalyticsPage() {
         const mySnaps = snapList.filter((s) => s.channel_id === channel.id)
         const latest = mySnaps[mySnaps.length - 1]
         const first = mySnaps[0]
-        const views = Number(latest?.metrics?.views ?? 0)
-        const likes = Number(latest?.metrics?.likes ?? 0)
+        const myInsights = insightList.filter((r) => r.channel_id === channel.id)
+        const sum = (f: (r: InsightRow) => number) => myInsights.reduce((a, r) => a + f(r), 0)
+        const views = sum((r) => r.views)
+        const likes = sum((r) => r.likes)
+        const engagement = likes + sum((r) => r.replies + r.reposts + r.quotes)
         const count = published.filter((p) => p.channel_id === channel.id).length
         built.push({
           mode,
@@ -368,6 +561,7 @@ export default function AnalyticsPage() {
           likes,
           likesPerPost: count > 0 ? likes / count : 0,
           followerDelta: latest && first ? latest.followers - first.followers : 0,
+          engagementRate: views > 0 ? (engagement / views) * 100 : 0,
         })
       }
       setSides(built)
@@ -438,6 +632,8 @@ export default function AnalyticsPage() {
           ))}
         </div>
       )}
+
+      <TopPosts rows={insights} channels={channels} />
 
       {channels.length > 0 && (
         <div style={card}>
