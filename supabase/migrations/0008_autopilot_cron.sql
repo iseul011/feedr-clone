@@ -1,9 +1,10 @@
 -- autopilot-runner를 매일 호출하는 pg_cron 잡 (0003/0005와 같은 패턴)
 -- body 없이 호출하면 enabled=true인 전 채널을 돈다
 -- 적용 전 치환 필요: <PROJECT_REF>, <SERVICE_ROLE_KEY>
+-- 06:00 KST(21:00 UTC) 실행 — 같은 날 오전/점심/저녁 시간대 예약이 모두 가능하도록
 select cron.schedule(
   'autopilot-daily',
-  '0 1 * * *',
+  '0 21 * * *',
   $$
   select net.http_post(
     url := 'https://<PROJECT_REF>.supabase.co/functions/v1/autopilot-runner',
