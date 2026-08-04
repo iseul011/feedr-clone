@@ -9,6 +9,7 @@ interface Settings {
   mode: 'approve' | 'auto'
   brand_name: string
   persona: string
+  guidelines: string
   max_posts_per_run: number
 }
 
@@ -26,6 +27,7 @@ const SYSTEM = `너는 SNS 채널 하나를 맡아 스스로 키우는 성장 �
 원칙:
 - 데이터가 부족하면 그렇다고 말하고, 일반적인 모범 사례를 근거로 삼되 그 사실을 밝힌다.
 - 브랜드 페르소나를 일관되게 유지한다. 매번 톤이 바뀌면 채널이 자라지 않는다.
+- 콘텐츠 지침이 주어지면 페르소나보다 지침이 우선이다. 지침의 금지사항은 절대 어기지 않는다.
 - 도구가 거부하면 이유를 읽고 조건에 맞게 고쳐서 다시 시도한다.
 - 보고는 마케팅 문구가 아니라 사실 위주로. 무엇을 했고 왜 그렇게 판단했는지만 쓴다.`
 
@@ -209,7 +211,7 @@ async function runForChannel(s: Settings): Promise<string> {
 운영 모드: ${s.mode === 'auto' ? '완전 자율 (예약이 그대로 발행된다)' : '승인 필요 (사람이 검토 후 발행한다)'}
 이번 실행에서 새로 만들 수 있는 글: 최대 ${s.max_posts_per_run}개
 현재 시각: ${new Date().toISOString()}
-
+${s.guidelines ? `\n콘텐츠 지침 (반드시 따를 것):\n${s.guidelines}\n` : ''}
 지표를 확인하고, 판단하고, 행동한 뒤 보고해라.`
 
     const message = await anthropic.beta.messages.toolRunner({

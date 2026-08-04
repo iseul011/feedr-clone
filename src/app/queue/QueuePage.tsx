@@ -37,9 +37,19 @@ function title(row: Row): string {
   return row.posts.title || row.posts.body.slice(0, 40) || '(내용 없음)'
 }
 
+const editInput = {
+  width: '100%',
+  border: '1px solid var(--color-border)',
+  borderRadius: 'var(--radius-sm)',
+  padding: '8px 12px',
+  fontSize: '14px',
+  fontFamily: 'inherit',
+}
+
 export default function QueuePage() {
   const [rows, setRows] = useState<Row[]>([])
   const [loading, setLoading] = useState(true)
+  const [editing, setEditing] = useState<{ targetId: string; title: string; body: string } | null>(null)
 
   const load = async () => {
     const { data } = await supabase
@@ -69,6 +79,16 @@ export default function QueuePage() {
 
   const approve = async (id: string) => {
     await supabase.from('post_targets').update({ status: 'queued' }).eq('id', id)
+    load()
+  }
+
+  const saveEdit = async (row: Row) => {
+    if (!editing) return
+    await supabase
+      .from('posts')
+      .update({ title: editing.title, body: editing.body })
+      .eq('id', row.post_id)
+    setEditing(null)
     load()
   }
 
@@ -122,6 +142,47 @@ export default function QueuePage() {
               <div style={card}>
                 {items.map((row, i) => {
                   const badge = BADGE[row.status]
+                  const isEditing = editing?.targetId === row.id
+                  if (isEditing) {
+                    return (
+                      <div
+                        key={row.id}
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '8px',
+                          padding: '14px 0',
+                          borderTop: i === 0 ? 'none' : '1px solid var(--color-border)',
+                        }}
+                      >
+                        <input
+                          style={editInput}
+                          value={editing.title}
+                          placeholder="제목 (선택)"
+                          onChange={(e) => setEditing({ ...editing, title: e.target.value })}
+                        />
+                        <textarea
+                          style={{ ...editInput, minHeight: '120px', resize: 'vertical' as const }}
+                          value={editing.body}
+                          onChange={(e) => setEditing({ ...editing, body: e.target.value })}
+                        />
+                        <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                          <button
+                            style={{ fontSize: '13px', color: 'var(--color-muted)', background: 'none' }}
+                            onClick={() => setEditing(null)}
+                          >
+                            닫기
+                          </button>
+                          <button
+                            style={{ fontSize: '13px', color: 'var(--color-primary)', fontWeight: 700, background: 'none' }}
+                            onClick={() => saveEdit(row)}
+                          >
+                            저장
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  }
                   return (
                     <div
                       key={row.id}
@@ -190,12 +251,22 @@ export default function QueuePage() {
                         </a>
                       )}
                       {row.status === 'draft' && (
-                        <button
-                          style={{ fontSize: '13px', color: 'var(--color-primary)', fontWeight: 600, background: 'none', flexShrink: 0 }}
-                          onClick={() => approve(row.id)}
-                        >
-                          승인
-                        </button>
+                        <>
+                          <button
+                            style={{ fontSize: '13px', color: 'var(--color-muted)', background: 'none', flexShrink: 0 }}
+                            onClick={() =>
+                              setEditing({ targetId: row.id, title: row.posts.title, body: row.posts.body })
+                            }
+                          >
+                            수정
+                          </button>
+                          <button
+                            style={{ fontSize: '13px', color: 'var(--color-primary)', fontWeight: 600, background: 'none', flexShrink: 0 }}
+                            onClick={() => approve(row.id)}
+                          >
+                            승인
+                          </button>
+                        </>
                       )}
                       {(row.status === 'queued' || row.status === 'draft') && (
                         <button

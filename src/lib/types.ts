@@ -69,6 +69,7 @@ export interface AutopilotSettings {
   mode: 'approve' | 'auto'
   brand_name: string
   persona: string
+  guidelines: string
   max_posts_per_run: number
   updated_at: string
 }

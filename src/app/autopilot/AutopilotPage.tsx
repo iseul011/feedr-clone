@@ -50,7 +50,7 @@ const RUN_BADGE: Record<AutopilotRun['status'], { fg: string; bg: string; label:
 
 type Editable = Pick<
   AutopilotSettings,
-  'enabled' | 'mode' | 'brand_name' | 'persona' | 'max_posts_per_run'
+  'enabled' | 'mode' | 'brand_name' | 'persona' | 'guidelines' | 'max_posts_per_run'
 >
 
 const DEFAULTS: Editable = {
@@ -58,6 +58,7 @@ const DEFAULTS: Editable = {
   mode: 'approve',
   brand_name: '',
   persona: '',
+  guidelines: '',
   max_posts_per_run: 2,
 }
 
@@ -101,6 +102,7 @@ export default function AutopilotPage() {
               mode: s.mode,
               brand_name: s.brand_name,
               persona: s.persona,
+              guidelines: s.guidelines,
               max_posts_per_run: s.max_posts_per_run,
             }
           : { ...DEFAULTS }
@@ -251,6 +253,18 @@ export default function AutopilotPage() {
                     value={f.persona}
                     placeholder="예: 동네 빵집 사장님. 담백하고 다정한 반말체, 과장 없는 일상 기록 톤."
                     onChange={(e) => patch(c.id, { persona: e.target.value })}
+                  />
+                </div>
+
+                <div>
+                  <div style={label}>콘텐츠 지침 (상세)</div>
+                  <textarea
+                    style={{ ...input, minHeight: '110px', resize: 'vertical' as const, fontFamily: 'inherit' }}
+                    value={f.guidelines}
+                    placeholder={
+                      '다룰 주제, 글 형식, 금지사항 등을 자유롭게 적으면 에이전트가 그대로 따릅니다.\n예:\n- 주제: 이번 주 유행하는 밈, 신상 편의점 간식, OTT 화제작\n- 형식: 첫 줄은 후킹 질문, 본문 3~5줄, 마지막에 팔로우 유도 한 줄\n- 금지: 정치·시사 언급, 이모지 3개 초과, 확인 안 된 소문'
+                    }
+                    onChange={(e) => patch(c.id, { guidelines: e.target.value })}
                   />
                 </div>
 
