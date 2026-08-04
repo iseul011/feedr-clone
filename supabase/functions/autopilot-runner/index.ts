@@ -424,22 +424,27 @@ ${
   }
 }
 
-// 진입점: 크론(body 없음 → enabled 전 채널) / 앱 버튼(channel_id) / 주제 지정 초안(channel_id + topic_id)
+// 진입점: 크론(body 없음 → 채널별 자기호출로 분산) / 내부 자기호출(channel_id + internal_key)
+//        / 앱 버튼(channel_id) / 주제 지정 초안(channel_id + topic_id)
+// 한 실행이 2~4분이라 여러 채널을 한 요청에서 순차 실행하면 벽시계 한도(~400초)에 걸린다.
+// 크론은 채널마다 별도 호출을 쏘고 즉시 응답한다 — 각 채널이 자기 한도를 온전히 쓴다.
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   try {
     const body = await req.json().catch(() => ({}))
     const channelId = body?.channel_id as string | undefined
     const topicId = body?.topic_id as string | undefined
+    const internalKey = body?.internal_key as string | undefined
 
     if (channelId) {
-      const user = await requireUser(req)
-      const { data: settings } = await db
-        .from('autopilot_settings')
-        .select('*')
-        .eq('channel_id', channelId)
-        .eq('user_id', user.id) // 남의 채널을 돌릴 수 없다
-        .single()
+      let settingsQuery = db.from('autopilot_settings').select('*').eq('channel_id', channelId)
+      if (internalKey === Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')) {
+        // 크론의 자기호출 — 유저 검증 생략 (서비스 키를 아는 쪽만 가능)
+      } else {
+        const user = await requireUser(req)
+        settingsQuery = settingsQuery.eq('user_id', user.id) // 남의 채널을 돌릴 수 없다
+      }
+      const { data: settings } = await settingsQuery.single()
       if (!settings) return json({ error: '오토파일럿 설정을 찾을 수 없습니다' }, 404)
 
       let topic: Topic | null = null
@@ -462,18 +467,21 @@ Deno.serve(async (req) => {
       return json({ run_id: runId })
     }
 
-    // 크론 경로
-    const { data: all } = await db.from('autopilot_settings').select('*').eq('enabled', true)
-    const results: Record<string, string> = {}
-    for (const s of (all ?? []) as Settings[]) {
-      try {
-        results[s.channel_id] = await runForChannel(s, null)
-      } catch (e) {
-        // 한 채널 실패가 나머지를 막지 않는다
-        results[s.channel_id] = `failed: ${e instanceof Error ? e.message : String(e)}`
-      }
+    // 크론 경로 — 채널별 자기호출 (응답은 기다리지 않는다)
+    const { data: all } = await db.from('autopilot_settings').select('channel_id').eq('enabled', true)
+    const selfUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/autopilot-runner`
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    for (const s of all ?? []) {
+      const dispatch = fetch(selfUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${serviceKey}` },
+        body: JSON.stringify({ channel_id: s.channel_id, internal_key: serviceKey }),
+      }).catch(() => {}) // fire-and-forget — 결과는 autopilot_runs에 기록된다
+      // 응답 반환 후에도 디스패치 요청이 끊기지 않게 유지 (Supabase Edge 런타임)
+      ;(globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } })
+        .EdgeRuntime?.waitUntil?.(dispatch)
     }
-    return json({ ran: Object.keys(results).length, results })
+    return json({ dispatched: (all ?? []).length })
   } catch (e) {
     if (e instanceof Response) return e
     return json({ error: e instanceof Error ? e.message : String(e) }, 500)
