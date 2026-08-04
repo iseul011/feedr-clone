@@ -96,10 +96,57 @@ interface ExperimentSide {
   publishedCount: number
   views: number
   viewsPerPost: number
+  likes: number
+  likesPerPost: number
+  followerDelta: number
 }
 
-function CompareBar({ side, max }: { side: ExperimentSide; max: number }) {
-  const pct = max > 0 ? Math.max((side.viewsPerPost / max) * 100, side.viewsPerPost > 0 ? 2 : 0) : 0
+// 비교할 지표 3종 — 각 그룹이 독립 스케일(단위가 달라 축을 공유하지 않는다)
+const METRICS: {
+  key: string
+  label: string
+  unit: string
+  value: (s: ExperimentSide) => number
+  fmt: (v: number) => string
+}[] = [
+  {
+    key: 'views',
+    label: '글당 평균 조회수',
+    unit: '조회/글',
+    value: (s) => s.viewsPerPost,
+    fmt: (v) => Math.round(v).toLocaleString(),
+  },
+  {
+    key: 'likes',
+    label: '글당 평균 좋아요',
+    unit: '좋아요/글',
+    value: (s) => s.likesPerPost,
+    fmt: (v) => (v >= 10 ? Math.round(v).toLocaleString() : v.toFixed(1)),
+  },
+  {
+    key: 'followers',
+    label: '팔로워 증가 (수집 기간)',
+    unit: '명',
+    value: (s) => s.followerDelta,
+    fmt: (v) => `${v >= 0 ? '+' : ''}${v.toLocaleString()}`,
+  },
+]
+
+function CompareBar({
+  side,
+  value,
+  max,
+  unit,
+  fmt,
+}: {
+  side: ExperimentSide
+  value: number
+  max: number
+  unit: string
+  fmt: (v: number) => string
+}) {
+  const safe = Math.max(value, 0) // 음수(팔로워 감소)는 막대 0, 수치로만 표시
+  const pct = max > 0 ? Math.max((safe / max) * 100, safe > 0 ? 2 : 0) : 0
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
       <span
@@ -110,7 +157,7 @@ function CompareBar({ side, max }: { side: ExperimentSide; max: number }) {
       </span>
       <div
         style={{ flex: 1, height: '14px', background: 'var(--color-bg-gray)', borderRadius: '4px', overflow: 'hidden' }}
-        title={`${side.channelName} · 글 ${side.publishedCount}개 · 누적 ${side.views.toLocaleString()} 조회`}
+        title={`${side.channelName} · 글 ${side.publishedCount}개 발행`}
       >
         <div
           style={{
@@ -121,12 +168,17 @@ function CompareBar({ side, max }: { side: ExperimentSide; max: number }) {
           }}
         />
       </div>
-      <span style={{ fontSize: '13px', fontWeight: 700, width: '90px', textAlign: 'right', flexShrink: 0 }}>
-        {Math.round(side.viewsPerPost).toLocaleString()}{' '}
-        <span style={{ color: 'var(--color-muted)', fontWeight: 500 }}>조회/글</span>
+      <span style={{ fontSize: '13px', fontWeight: 700, width: '104px', textAlign: 'right', flexShrink: 0 }}>
+        {fmt(value)} <span style={{ color: 'var(--color-muted)', fontWeight: 500 }}>{unit}</span>
       </span>
     </div>
   )
+}
+
+function ratioBadge(a: number, b: number): string | null {
+  if (a <= 0 || b <= 0) return null
+  const r = Math.max(a, b) / Math.min(a, b)
+  return r >= 10 ? `${Math.round(r)}×` : `${r.toFixed(1)}×`
 }
 
 function ExperimentCompare({ sides }: { sides: ExperimentSide[] }) {
@@ -134,7 +186,7 @@ function ExperimentCompare({ sides }: { sides: ExperimentSide[] }) {
   const approve = sides.find((s) => s.mode === 'approve')
   if (!auto || !approve) return null
 
-  const max = Math.max(auto.viewsPerPost, approve.viewsPerPost)
+  // 히어로 숫자는 대표 지표(글당 조회수) 기준
   const bothHaveData = auto.viewsPerPost > 0 && approve.viewsPerPost > 0
   const winner = auto.viewsPerPost >= approve.viewsPerPost ? auto : approve
   const loser = winner === auto ? approve : auto
@@ -146,7 +198,7 @@ function ExperimentCompare({ sides }: { sides: ExperimentSide[] }) {
       <div style={{ fontWeight: 700, fontSize: '15px', marginBottom: '16px' }}>
         자동화 실험 — 완전 자율 vs AI+승인
       </div>
-      <div style={{ display: 'flex', gap: '32px', alignItems: 'center', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: '32px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
         <div style={{ minWidth: '180px' }}>
           <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-muted)', letterSpacing: '2px' }}>
             효과 크기
@@ -170,14 +222,36 @@ function ExperimentCompare({ sides }: { sides: ExperimentSide[] }) {
             </p>
           )}
         </div>
-        <div style={{ flex: 1, minWidth: '280px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          <CompareBar side={auto} max={max} />
-          <CompareBar side={approve} max={max} />
+        <div style={{ flex: 1, minWidth: '300px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+          {METRICS.map((m) => {
+            const av = m.value(auto)
+            const pv = m.value(approve)
+            const max = Math.max(av, pv, 0)
+            const badge = ratioBadge(av, pv)
+            return (
+              <div key={m.key}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '6px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-muted)' }}>
+                    {m.label}
+                  </span>
+                  {badge && (
+                    <span style={{ fontSize: '12px', fontWeight: 700 }}>
+                      {badge} <span style={{ color: 'var(--color-muted)', fontWeight: 500 }}>차이</span>
+                    </span>
+                  )}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <CompareBar side={auto} value={av} max={max} unit={m.unit} fmt={m.fmt} />
+                  <CompareBar side={approve} value={pv} max={max} unit={m.unit} fmt={m.fmt} />
+                </div>
+              </div>
+            )
+          })}
         </div>
       </div>
       <p style={{ fontSize: '12px', color: 'var(--color-muted)', margin: '14px 0 0' }}>
-        글당 평균 조회수 기준 (완전 자율 {auto.publishedCount}개 · AI+승인 {approve.publishedCount}개
-        발행). 표본이 작아 아직 우연일 수 있습니다.
+        완전 자율 {auto.publishedCount}개 · AI+승인 {approve.publishedCount}개 발행 기준. 팔로워
+        증가는 수집 기간(최근 30일 내) 첫 스냅샷 대비입니다. 표본이 작아 아직 우연일 수 있습니다.
       </p>
     </div>
   )
@@ -281,7 +355,9 @@ export default function AnalyticsPage() {
         if (!channel) continue
         const mySnaps = snapList.filter((s) => s.channel_id === channel.id)
         const latest = mySnaps[mySnaps.length - 1]
+        const first = mySnaps[0]
         const views = Number(latest?.metrics?.views ?? 0)
+        const likes = Number(latest?.metrics?.likes ?? 0)
         const count = published.filter((p) => p.channel_id === channel.id).length
         built.push({
           mode,
@@ -289,6 +365,9 @@ export default function AnalyticsPage() {
           publishedCount: count,
           views,
           viewsPerPost: count > 0 ? views / count : 0,
+          likes,
+          likesPerPost: count > 0 ? likes / count : 0,
+          followerDelta: latest && first ? latest.followers - first.followers : 0,
         })
       }
       setSides(built)
