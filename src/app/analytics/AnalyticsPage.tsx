@@ -85,6 +85,104 @@ function Sparkline({ points, color }: { points: AnalyticsSnapshot[]; color: stri
   )
 }
 
+// 자동화 실험 비교 — 완전 자율(auto) vs AI+승인(approve)
+// 색은 검증된 2색 고정 배정: 자율=인디고(브랜드), 승인=앰버 (validate_palette 통과)
+const EXP_COLORS = { auto: '#3B5BDB', approve: '#D97706' } as const
+const MODE_LABELS = { auto: '완전 자율', approve: 'AI+승인' } as const
+
+interface ExperimentSide {
+  mode: 'auto' | 'approve'
+  channelName: string
+  publishedCount: number
+  views: number
+  viewsPerPost: number
+}
+
+function CompareBar({ side, max }: { side: ExperimentSide; max: number }) {
+  const pct = max > 0 ? Math.max((side.viewsPerPost / max) * 100, side.viewsPerPost > 0 ? 2 : 0) : 0
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+      <span
+        style={{ width: '8px', height: '8px', borderRadius: '50%', background: EXP_COLORS[side.mode], flexShrink: 0 }}
+      />
+      <span style={{ fontSize: '13px', fontWeight: 600, width: '72px', flexShrink: 0 }}>
+        {MODE_LABELS[side.mode]}
+      </span>
+      <div
+        style={{ flex: 1, height: '14px', background: 'var(--color-bg-gray)', borderRadius: '4px', overflow: 'hidden' }}
+        title={`${side.channelName} · 글 ${side.publishedCount}개 · 누적 ${side.views.toLocaleString()} 조회`}
+      >
+        <div
+          style={{
+            width: `${pct}%`,
+            height: '100%',
+            background: EXP_COLORS[side.mode],
+            borderRadius: '4px',
+          }}
+        />
+      </div>
+      <span style={{ fontSize: '13px', fontWeight: 700, width: '90px', textAlign: 'right', flexShrink: 0 }}>
+        {Math.round(side.viewsPerPost).toLocaleString()}{' '}
+        <span style={{ color: 'var(--color-muted)', fontWeight: 500 }}>조회/글</span>
+      </span>
+    </div>
+  )
+}
+
+function ExperimentCompare({ sides }: { sides: ExperimentSide[] }) {
+  const auto = sides.find((s) => s.mode === 'auto')
+  const approve = sides.find((s) => s.mode === 'approve')
+  if (!auto || !approve) return null
+
+  const max = Math.max(auto.viewsPerPost, approve.viewsPerPost)
+  const bothHaveData = auto.viewsPerPost > 0 && approve.viewsPerPost > 0
+  const winner = auto.viewsPerPost >= approve.viewsPerPost ? auto : approve
+  const loser = winner === auto ? approve : auto
+  const ratio = bothHaveData ? winner.viewsPerPost / loser.viewsPerPost : 0
+  const ratioText = ratio >= 10 ? `${Math.round(ratio)}` : ratio.toFixed(1)
+
+  return (
+    <div style={{ ...card, marginBottom: '16px' }}>
+      <div style={{ fontWeight: 700, fontSize: '15px', marginBottom: '16px' }}>
+        자동화 실험 — 완전 자율 vs AI+승인
+      </div>
+      <div style={{ display: 'flex', gap: '32px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ minWidth: '180px' }}>
+          <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-muted)', letterSpacing: '2px' }}>
+            효과 크기
+          </div>
+          {bothHaveData ? (
+            <>
+              <div style={{ fontSize: '44px', fontWeight: 800, lineHeight: 1.1 }}>
+                {ratioText}
+                <span style={{ fontSize: '22px', color: 'var(--color-muted)' }}>×</span>
+              </div>
+              <p style={{ fontSize: '13px', color: 'var(--color-text)', margin: '4px 0 0' }}>
+                {MODE_LABELS[winner.mode]} 계정이 {MODE_LABELS[loser.mode]} 계정보다
+                <br />글당 이만큼 더 읽혔습니다.
+              </p>
+            </>
+          ) : (
+            <p style={{ fontSize: '14px', color: 'var(--color-muted)', margin: '8px 0 0' }}>
+              양쪽 모두 조회 데이터가 쌓이면
+              <br />
+              효과 크기가 계산됩니다.
+            </p>
+          )}
+        </div>
+        <div style={{ flex: 1, minWidth: '280px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          <CompareBar side={auto} max={max} />
+          <CompareBar side={approve} max={max} />
+        </div>
+      </div>
+      <p style={{ fontSize: '12px', color: 'var(--color-muted)', margin: '14px 0 0' }}>
+        글당 평균 조회수 기준 (완전 자율 {auto.publishedCount}개 · AI+승인 {approve.publishedCount}개
+        발행). 표본이 작아 아직 우연일 수 있습니다.
+      </p>
+    </div>
+  )
+}
+
 function ChannelCard({ channel, points }: { channel: Channel; points: AnalyticsSnapshot[] }) {
   const latest = points[points.length - 1]
   const first = points[0]
@@ -151,6 +249,7 @@ function ChannelCard({ channel, points }: { channel: Channel; points: AnalyticsS
 export default function AnalyticsPage() {
   const [channels, setChannels] = useState<Channel[] | null>(null)
   const [snapshots, setSnapshots] = useState<AnalyticsSnapshot[]>([])
+  const [sides, setSides] = useState<ExperimentSide[]>([])
   const [advice, setAdvice] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -164,9 +263,35 @@ export default function AnalyticsPage() {
         .select('channel_id, captured_at, followers, metrics')
         .gte('captured_at', since)
         .order('captured_at', { ascending: true }),
-    ]).then(([ch, snap]) => {
-      setChannels((ch.data as Channel[]) ?? [])
-      setSnapshots((snap.data as AnalyticsSnapshot[]) ?? [])
+      supabase.from('autopilot_settings').select('channel_id, mode'),
+      supabase.from('post_targets').select('channel_id').eq('status', 'published'),
+    ]).then(([ch, snap, st, pub]) => {
+      const channelList = (ch.data as Channel[]) ?? []
+      const snapList = (snap.data as AnalyticsSnapshot[]) ?? []
+      setChannels(channelList)
+      setSnapshots(snapList)
+
+      // 실험 비교: 오토파일럿이 설정된 채널을 모드별로 집계 (모드당 첫 채널)
+      const settings = (st.data as { channel_id: string; mode: 'auto' | 'approve' }[]) ?? []
+      const published = (pub.data as { channel_id: string }[]) ?? []
+      const built: ExperimentSide[] = []
+      for (const mode of ['auto', 'approve'] as const) {
+        const setting = settings.find((s) => s.mode === mode)
+        const channel = setting && channelList.find((c) => c.id === setting.channel_id)
+        if (!channel) continue
+        const mySnaps = snapList.filter((s) => s.channel_id === channel.id)
+        const latest = mySnaps[mySnaps.length - 1]
+        const views = Number(latest?.metrics?.views ?? 0)
+        const count = published.filter((p) => p.channel_id === channel.id).length
+        built.push({
+          mode,
+          channelName: channel.display_name,
+          publishedCount: count,
+          views,
+          viewsPerPost: count > 0 ? views / count : 0,
+        })
+      }
+      setSides(built)
     })
   }, [])
 
@@ -209,6 +334,8 @@ export default function AnalyticsPage() {
       <p style={{ color: 'var(--color-muted)', fontSize: '14px', marginBottom: '24px' }}>
         채널별 팔로워 추이와 AI 발행 시간 추천
       </p>
+
+      <ExperimentCompare sides={sides} />
 
       {channels.length === 0 ? (
         <div style={{ ...card, textAlign: 'center', padding: '60px 24px' }}>
