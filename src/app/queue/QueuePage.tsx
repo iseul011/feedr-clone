@@ -18,6 +18,13 @@ function fmt(iso: string): string {
   return `${d.getMonth() + 1}월 ${d.getDate()}일 (${DAYS[d.getDay()]}) ${hh}:${mm}`
 }
 
+// ISO(UTC) → datetime-local 입력값 (로컬 시간)
+function toLocalInput(iso: string): string {
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 const BADGE: Record<string, { fg: string; bg: string; label: string }> = {
   draft: { fg: '#7C3AED', bg: '#F5F3FF', label: '승인 대기' },
   queued: { fg: '#3B5BDB', bg: '#EEF2FF', label: '예약됨' },
@@ -49,7 +56,12 @@ const editInput = {
 export default function QueuePage() {
   const [rows, setRows] = useState<Row[]>([])
   const [loading, setLoading] = useState(true)
-  const [editing, setEditing] = useState<{ targetId: string; title: string; body: string } | null>(null)
+  const [editing, setEditing] = useState<{
+    targetId: string
+    title: string
+    body: string
+    scheduledAt: string // datetime-local 형식 (로컬 시간)
+  } | null>(null)
 
   const load = async () => {
     const { data } = await supabase
@@ -88,6 +100,10 @@ export default function QueuePage() {
       .from('posts')
       .update({ title: editing.title, body: editing.body })
       .eq('id', row.post_id)
+    await supabase
+      .from('post_targets')
+      .update({ scheduled_at: new Date(editing.scheduledAt).toISOString() })
+      .eq('id', row.id)
     setEditing(null)
     load()
   }
@@ -166,6 +182,15 @@ export default function QueuePage() {
                           value={editing.body}
                           onChange={(e) => setEditing({ ...editing, body: e.target.value })}
                         />
+                        <label style={{ fontSize: '13px', color: 'var(--color-muted)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          발행 시각
+                          <input
+                            type="datetime-local"
+                            style={{ ...editInput, width: 'auto' }}
+                            value={editing.scheduledAt}
+                            onChange={(e) => setEditing({ ...editing, scheduledAt: e.target.value })}
+                          />
+                        </label>
                         <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
                           <button
                             style={{ fontSize: '13px', color: 'var(--color-muted)', background: 'none' }}
@@ -250,23 +275,28 @@ export default function QueuePage() {
                           보기 →
                         </a>
                       )}
+                      {(row.status === 'draft' || row.status === 'queued') && (
+                        <button
+                          style={{ fontSize: '13px', color: 'var(--color-muted)', background: 'none', flexShrink: 0 }}
+                          onClick={() =>
+                            setEditing({
+                              targetId: row.id,
+                              title: row.posts.title,
+                              body: row.posts.body,
+                              scheduledAt: toLocalInput(row.scheduled_at),
+                            })
+                          }
+                        >
+                          수정
+                        </button>
+                      )}
                       {row.status === 'draft' && (
-                        <>
-                          <button
-                            style={{ fontSize: '13px', color: 'var(--color-muted)', background: 'none', flexShrink: 0 }}
-                            onClick={() =>
-                              setEditing({ targetId: row.id, title: row.posts.title, body: row.posts.body })
-                            }
-                          >
-                            수정
-                          </button>
-                          <button
-                            style={{ fontSize: '13px', color: 'var(--color-primary)', fontWeight: 600, background: 'none', flexShrink: 0 }}
-                            onClick={() => approve(row.id)}
-                          >
-                            승인
-                          </button>
-                        </>
+                        <button
+                          style={{ fontSize: '13px', color: 'var(--color-primary)', fontWeight: 600, background: 'none', flexShrink: 0 }}
+                          onClick={() => approve(row.id)}
+                        >
+                          승인
+                        </button>
                       )}
                       {(row.status === 'queued' || row.status === 'draft') && (
                         <button
