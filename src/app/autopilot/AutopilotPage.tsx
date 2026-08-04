@@ -1,7 +1,14 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { callFn } from '../../lib/api'
-import type { AutopilotRun, AutopilotSettings, Channel } from '../../lib/types'
+import type {
+  AgentExperience,
+  AgentPlaybook,
+  AutopilotRun,
+  AutopilotSettings,
+  Channel,
+  TopicSuggestion,
+} from '../../lib/types'
 import SnsIcon from '../../marketing/SnsIcon'
 
 const card = {
@@ -71,16 +78,31 @@ export default function AutopilotPage() {
   const [channels, setChannels] = useState<Channel[] | null>(null)
   const [forms, setForms] = useState<Record<string, Editable>>({})
   const [runs, setRuns] = useState<AutopilotRun[]>([])
+  const [suggestions, setSuggestions] = useState<TopicSuggestion[]>([])
+  const [playbooks, setPlaybooks] = useState<AgentPlaybook[]>([])
+  const [lessons, setLessons] = useState<AgentExperience[]>([])
   const [busy, setBusy] = useState<string | null>(null) // channel_id 실행/저장 중
   const [banner, setBanner] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
 
   const loadRuns = async () => {
-    const { data } = await supabase
-      .from('autopilot_runs')
-      .select('*')
-      .order('started_at', { ascending: false })
-      .limit(20)
-    setRuns((data as AutopilotRun[]) ?? [])
+    const [{ data: r }, { data: sg }, { data: pb }, { data: ex }] = await Promise.all([
+      supabase.from('autopilot_runs').select('*').order('started_at', { ascending: false }).limit(20),
+      supabase
+        .from('topic_suggestions')
+        .select('*')
+        .eq('status', 'suggested')
+        .order('created_at', { ascending: false }),
+      supabase.from('agent_playbooks').select('*').order('version', { ascending: false }),
+      supabase
+        .from('agent_experiences')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(30),
+    ])
+    setRuns((r as AutopilotRun[]) ?? [])
+    setSuggestions((sg as TopicSuggestion[]) ?? [])
+    setPlaybooks((pb as AgentPlaybook[]) ?? [])
+    setLessons((ex as AgentExperience[]) ?? [])
   }
 
   useEffect(() => {
@@ -147,6 +169,26 @@ export default function AutopilotPage() {
     }
   }
 
+  // 사용자가 고른 주제로 초안 작성 (승인 모드)
+  const draftFromTopic = async (channelId: string, topicId: string) => {
+    setBusy(channelId)
+    setBanner(null)
+    try {
+      await callFn('autopilot-runner', undefined, { channel_id: channelId, topic_id: topicId })
+      setBanner({ kind: 'ok', text: '초안을 만들었어요. 대기열의 승인 대기에서 확인하세요.' })
+    } catch (e) {
+      setBanner({ kind: 'error', text: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setBusy(null)
+      loadRuns()
+    }
+  }
+
+  const dismissTopic = async (topicId: string) => {
+    await supabase.from('topic_suggestions').update({ status: 'dismissed' }).eq('id', topicId)
+    loadRuns()
+  }
+
   const channelName = (id: string) => channels?.find((c) => c.id === id)?.display_name ?? '(삭제된 채널)'
 
   return (
@@ -182,6 +224,9 @@ export default function AutopilotPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '36px' }}>
           {channels.map((c) => {
             const f = forms[c.id] ?? DEFAULTS
+            const myTopics = suggestions.filter((t) => t.channel_id === c.id)
+            const myPlaybook = playbooks.find((p) => p.channel_id === c.id) // 최신 버전이 먼저 오도록 정렬됨
+            const myLessons = lessons.filter((l) => l.channel_id === c.id).slice(0, 5)
             return (
               <div key={c.id} style={card}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -281,9 +326,70 @@ export default function AutopilotPage() {
                     disabled={busy !== null}
                     onClick={() => runNow(c.id)}
                   >
-                    {busy === c.id ? '실행 중… (1분쯤 걸려요)' : '지금 실행'}
+                    {busy === c.id ? '실행 중… (1~2분 걸려요)' : '지금 실행'}
                   </button>
                 </div>
+                {f.mode === 'approve' && (
+                  <p style={{ fontSize: '12px', color: 'var(--color-muted)', margin: 0 }}>
+                    승인 모드에서 "지금 실행"은 트렌드를 조사해 주제를 제안합니다. 아래에서 주제를 고르면 초안을 써요.
+                  </p>
+                )}
+
+                {myTopics.length > 0 && (
+                  <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: '12px' }}>
+                    <div style={{ ...label, marginBottom: '8px' }}>추천 주제 — 골라서 초안을 만드세요</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {myTopics.map((t) => (
+                        <div key={t.id} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: '14px', fontWeight: 600 }}>{t.title}</div>
+                            <div style={{ fontSize: '12px', color: 'var(--color-muted)', whiteSpace: 'pre-wrap' }}>
+                              {t.summary}
+                            </div>
+                          </div>
+                          <button
+                            style={{ fontSize: '13px', color: 'var(--color-primary)', fontWeight: 600, background: 'none', flexShrink: 0 }}
+                            disabled={busy !== null}
+                            onClick={() => draftFromTopic(c.id, t.id)}
+                          >
+                            초안 작성
+                          </button>
+                          <button
+                            style={{ fontSize: '13px', color: 'var(--color-muted)', background: 'none', flexShrink: 0 }}
+                            onClick={() => dismissTopic(t.id)}
+                          >
+                            무시
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {(myPlaybook || myLessons.length > 0) && (
+                  <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {myPlaybook && (
+                      <details>
+                        <summary style={{ fontSize: '13px', color: 'var(--color-primary)', fontWeight: 600, cursor: 'pointer' }}>
+                          전략 플레이북 v{myPlaybook.version} (에이전트가 작성)
+                        </summary>
+                        <p style={{ fontSize: '13px', whiteSpace: 'pre-wrap', marginTop: '8px' }}>{myPlaybook.content}</p>
+                      </details>
+                    )}
+                    {myLessons.length > 0 && (
+                      <details>
+                        <summary style={{ fontSize: '13px', color: 'var(--color-primary)', fontWeight: 600, cursor: 'pointer' }}>
+                          최근 교훈 {myLessons.length}건
+                        </summary>
+                        <ul style={{ margin: '8px 0 0 18px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          {myLessons.map((l) => (
+                            <li key={l.id} style={{ fontSize: '12px', color: 'var(--color-muted)' }}>{l.lesson}</li>
+                          ))}
+                        </ul>
+                      </details>
+                    )}
+                  </div>
+                )}
               </div>
             )
           })}

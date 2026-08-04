@@ -86,6 +86,30 @@ export interface AutopilotRun {
   error: string | null
 }
 
+export interface TopicSuggestion {
+  id: string
+  channel_id: string
+  title: string
+  summary: string
+  status: 'suggested' | 'dismissed' | 'drafted'
+  created_at: string
+}
+
+export interface AgentPlaybook {
+  id: string
+  channel_id: string
+  version: number
+  content: string
+  created_at: string
+}
+
+export interface AgentExperience {
+  id: string
+  channel_id: string
+  lesson: string
+  created_at: string
+}
+
 export const STATUS_LABELS: Record<TargetStatus, string> = {
   draft: '임시저장',
   queued: '예약됨',
