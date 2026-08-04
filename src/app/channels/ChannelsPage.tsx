@@ -160,6 +160,12 @@ export default function ChannelsPage() {
                         <span style={badge('#DC2626', '#FEF2F2')}>재연동 필요</span>
                       )}
                     </div>
+                    <button
+                      style={{ fontSize: '13px', color: 'var(--color-muted)', background: 'none', flexShrink: 0 }}
+                      onClick={() => disconnect(channel)}
+                    >
+                      해제
+                    </button>
                   </div>
                 ))}
 
@@ -170,8 +176,12 @@ export default function ChannelsPage() {
                         다시 연결
                       </button>
                     )}
-                    <button style={ghostBtn} onClick={() => disconnect(mine[0])}>
-                      연결 해제
+                    <button
+                      style={{ ...ghostBtn, opacity: connecting === provider ? 0.6 : 1 }}
+                      disabled={connecting !== null}
+                      onClick={() => connect(provider)}
+                    >
+                      {connecting === provider ? '연결 중…' : '계정 추가'}
                     </button>
                   </div>
                 ) : implemented ? (
