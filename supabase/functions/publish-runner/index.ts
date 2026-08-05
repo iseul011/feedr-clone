@@ -75,6 +75,20 @@ async function processTarget(target: TargetRow): Promise<string> {
 
 async function handleFailure(target: TargetRow, e: unknown): Promise<string> {
   const message = e instanceof Error ? e.message : String(e)
+  // Meta 계정 단위 API 차단(스팸 방지) — 반복 시도는 플래그를 악화시킨다.
+  // 재시도 없이 실패 처리하고 이 채널의 오토파일럿을 자동 정지한다 (서킷 브레이커).
+  if (message.includes('API access blocked')) {
+    await db.from('autopilot_settings').update({ enabled: false }).eq('channel_id', target.channel_id)
+    await db
+      .from('post_targets')
+      .update({
+        status: 'failed',
+        error_message:
+          'Meta가 이 계정의 API 접근을 차단했습니다 (스팸 방지). 오토파일럿을 자동 정지했어요 — 보통 24~48시간 내 해제되니, 해제 확인 후 다시 켜고 재시도하세요.',
+      })
+      .eq('id', target.id)
+    return 'api_blocked'
+  }
   if (e instanceof AuthError) {
     // 죽은 토큰 재시도는 소음 — 채널 재연동 요구
     await db.from('channels').update({ status: 'expired' }).eq('id', target.channel_id)
