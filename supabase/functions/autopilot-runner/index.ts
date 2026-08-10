@@ -2,6 +2,8 @@ import Anthropic from 'npm:@anthropic-ai/sdk'
 import { betaTool } from 'npm:@anthropic-ai/sdk/helpers/beta/json-schema'
 import { corsHeaders, db, json, requireUser } from '../_shared/db.ts'
 import { checkPostQuota, checkScheduledAt } from '../_shared/autopilot.ts'
+import { decrypt } from '../_shared/crypto.ts'
+import { gatherResearch } from '../_shared/research.ts'
 
 interface Settings {
   channel_id: string
@@ -32,8 +34,8 @@ const SYSTEM = `너는 SNS 채널 하나를 맡아 스스로 키우는 성장 �
    플레이북이 낡았으면 update_playbook으로 전략 전문을 다시 쓴다.
    기준 미달이면 이 단계를 건너뛰고 보고에 그 사실만 한 줄 남긴다.
 1. get_analytics와 get_post_history로 채널 상태를 파악한다.
-2. web_search로 콘텐츠 지침 범위 안의 최신 트렌드를 조사한다.
-   출처가 불확실하거나 검색으로 확인 안 되는 내용은 절대 소재로 쓰지 않는다.
+2. research_trends로 콘텐츠 지침 범위 안의 최신 트렌드를 조사한다.
+   리서치 결과로 확인 안 되는 내용은 절대 소재로 쓰지 않는다.
 3. 운영 모드에 따라 행동한다:
    - 완전 자율: 조사한 트렌드로 글을 쓰고, 예약 전에 스스로 검수한다
      (지침 위반·사실 오류·페르소나 이탈·중복 소재 확인). 통과한 글만 create_scheduled_post로 예약한다.
@@ -50,16 +52,61 @@ const SYSTEM = `너는 SNS 채널 하나를 맡아 스스로 키우는 성장 �
 - 도구가 거부하면 이유를 읽고 조건에 맞게 고쳐서 다시 시도한다.
 - 보고는 마케팅 문구가 아니라 사실 위주로. 무엇을 했고 왜 그렇게 판단했는지만 쓴다.`
 
+// Threads 검색용 토큰 — threads 채널이 아니거나 실패하면 그 소스만 빠진다
+async function loadThreadsToken(channelId: string): Promise<string | undefined> {
+  try {
+    const { data } = await db
+      .from('channels')
+      .select('provider, access_token_enc')
+      .eq('id', channelId)
+      .single()
+    if (data?.provider !== 'threads' || !data.access_token_enc) return undefined
+    return await decrypt(data.access_token_enc as string)
+  } catch {
+    return undefined
+  }
+}
+
 function buildTools(s: Settings, state: { created: number; actions: unknown[]; runId: string }) {
   const record = (tool: string, input: unknown, result: string) => {
     state.actions.push({ tool, input, result: result.slice(0, 500) })
     return result
   }
 
+  let threadsTokenPromise: Promise<string | undefined> | undefined
+  const threadsToken = () => (threadsTokenPromise ??= loadThreadsToken(s.channel_id))
+
   return [
-    // Anthropic 서버 실행 웹 검색 — 트렌드 리서치용
-    // 기본형(20250305)을 쓴다: 20260209는 내부 코드 실행 컨테이너를 요구해 toolRunner와 안 맞음
-    { type: 'web_search_20250305', name: 'web_search', max_uses: 6 },
+    // 무료 트렌드 리서치 — 유료 Anthropic web_search 대체 (검색 과금 + 반복 토큰 절감)
+    betaTool({
+      name: 'research_trends',
+      description:
+        '최신 트렌드를 무료 소스에서 한 번에 수집한다: 구글 트렌드 급상승(한국), 네이버 블로그/뉴스 최신 글, 네이버 검색량 추이, 실시간 검색어, 유튜브 인기 영상, Threads 인기 게시물, (설정 시) Gemini 웹 리서치. 채널 니치에 맞는 키워드 2~4개로 호출할 것.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          keywords: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '조사할 니치 키워드 (예: 집순이, 홈카페, 자취)',
+          },
+          question: {
+            type: 'string',
+            description: '(선택) 자유형 리서치 질문 — Gemini 웹 검색으로 답을 찾는다',
+          },
+        },
+        required: ['keywords'],
+        additionalProperties: false,
+      },
+      run: async ({ keywords, question }) => {
+        const digest = await gatherResearch({
+          keywords,
+          question,
+          threadsToken: await threadsToken(),
+        })
+        return record('research_trends', { keywords, question }, digest)
+      },
+    }),
 
     betaTool({
       name: 'get_analytics',
@@ -381,7 +428,7 @@ ${
       messages: [{ role: 'user', content: prompt }],
     })
 
-    // 서버 도구(웹 검색)가 pause_turn으로 멈추면 이어서 재개한다
+    // 서버 도구가 pause_turn으로 멈추면 이어서 재개한다 (안전망 — 현재는 서버 도구 없음)
     // deno-lint-ignore no-explicit-any
     let message: any = null
     for await (const m of runner) {
