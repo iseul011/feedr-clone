@@ -1,5 +1,5 @@
-import Anthropic from 'npm:@anthropic-ai/sdk'
 import { corsHeaders, db, json, requireUser } from '../_shared/db.ts'
+import { generateText } from '../_shared/gemini.ts'
 
 const FREE_DAILY_LIMIT = 10
 
@@ -38,21 +38,16 @@ Deno.serve(async (req) => {
       }
     }
 
-    const anthropic = new Anthropic({ apiKey: Deno.env.get('ANTHROPIC_API_KEY')! })
-    const message = await anthropic.messages.create({
-      model: 'claude-opus-5',
-      max_tokens: 4096,
-      system: SYSTEM_PROMPTS[kind],
-      messages: [{ role: 'user', content: prompt }],
-    })
-
-    if (message.stop_reason === 'refusal') {
-      return json({ error: '이 요청은 처리할 수 없어요. 다른 내용으로 시도해주세요.' }, 400)
+    let text: string
+    try {
+      text = await generateText({ system: SYSTEM_PROMPTS[kind], prompt, maxOutputTokens: 4096 })
+    } catch (e) {
+      // 안전 필터 차단은 사용자 입력 문제로 안내
+      if (e instanceof Error && e.message.includes('차단')) {
+        return json({ error: '이 요청은 처리할 수 없어요. 다른 내용으로 시도해주세요.' }, 400)
+      }
+      throw e
     }
-    const text = message.content
-      .filter((b) => b.type === 'text')
-      .map((b) => b.text)
-      .join('')
 
     await db.from('ai_generations').insert({ user_id: user.id, kind, prompt, response: text })
     return json({ text })

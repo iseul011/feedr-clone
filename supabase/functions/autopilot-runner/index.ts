@@ -1,5 +1,5 @@
-import Anthropic from 'npm:@anthropic-ai/sdk'
-import { betaTool } from 'npm:@anthropic-ai/sdk/helpers/beta/json-schema'
+import { runGeminiAgent } from '../_shared/gemini.ts'
+import type { GeminiTool } from '../_shared/gemini.ts'
 import { corsHeaders, db, json, requireUser } from '../_shared/db.ts'
 import { checkPostQuota, checkScheduledAt } from '../_shared/autopilot.ts'
 import { decrypt } from '../_shared/crypto.ts'
@@ -67,7 +67,10 @@ async function loadThreadsToken(channelId: string): Promise<string | undefined> 
   }
 }
 
-function buildTools(s: Settings, state: { created: number; actions: unknown[]; runId: string }) {
+function buildTools(
+  s: Settings,
+  state: { created: number; actions: unknown[]; runId: string },
+): GeminiTool[] {
   const record = (tool: string, input: unknown, result: string) => {
     state.actions.push({ tool, input, result: result.slice(0, 500) })
     return result
@@ -78,7 +81,7 @@ function buildTools(s: Settings, state: { created: number; actions: unknown[]; r
 
   return [
     // 무료 트렌드 리서치 — 유료 Anthropic web_search 대체 (검색 과금 + 반복 토큰 절감)
-    betaTool({
+    {
       name: 'research_trends',
       description:
         '최신 트렌드를 무료 소스에서 한 번에 수집한다: 구글 트렌드 급상승(한국), 네이버 블로그/뉴스 최신 글, 네이버 검색량 추이, 실시간 검색어, 유튜브 인기 영상, Threads 인기 게시물, (설정 시) Gemini 웹 리서치. 채널 니치에 맞는 키워드 2~4개로 호출할 것.',
@@ -106,9 +109,9 @@ function buildTools(s: Settings, state: { created: number; actions: unknown[]; r
         })
         return record('research_trends', { keywords, question }, digest)
       },
-    }),
+    },
 
-    betaTool({
+    {
       name: 'get_analytics',
       description: '이 채널의 최근 일별 통계 스냅샷(팔로워, 조회수 등)과 채널 정보를 가져온다.',
       inputSchema: {
@@ -134,8 +137,8 @@ function buildTools(s: Settings, state: { created: number; actions: unknown[]; r
           JSON.stringify({ channel, snapshots: snapshots ?? [] }),
         )
       },
-    }),
-    betaTool({
+    },
+    {
       name: 'get_post_history',
       description: '이 채널에 발행 완료된 과거 글과 결과를 최근순으로 가져온다. 소재 중복 확인과 성과 비교에 쓴다.',
       inputSchema: {
@@ -154,8 +157,8 @@ function buildTools(s: Settings, state: { created: number; actions: unknown[]; r
           .limit(limit)
         return record('get_post_history', { limit }, JSON.stringify(data ?? []))
       },
-    }),
-    betaTool({
+    },
+    {
       name: 'create_scheduled_post',
       description:
         '새 글을 작성해 이 채널에 예약한다. 텍스트 전용이며 미디어는 첨부할 수 없다. 예약은 지금부터 최소 30분 뒤여야 한다.',
@@ -209,8 +212,8 @@ function buildTools(s: Settings, state: { created: number; actions: unknown[]; r
             : `초안으로 저장했다(${input.scheduled_at}). 사용자가 대기열에서 승인해야 발행된다.`,
         )
       },
-    }),
-    betaTool({
+    },
+    {
       name: 'reschedule_target',
       description:
         '이 채널에 이미 예약된 글의 발행 시각을 옮긴다. 대상 id는 get_pending_targets로 얻는다.',
@@ -243,8 +246,8 @@ function buildTools(s: Settings, state: { created: number; actions: unknown[]; r
         }
         return record('reschedule_target', input, `${input.scheduled_at}로 옮겼다.`)
       },
-    }),
-    betaTool({
+    },
+    {
       name: 'get_pending_targets',
       description: '이 채널에서 아직 발행되지 않은 예약 목록을 가져온다. 시각을 옮기거나 소재 중복을 피할 때 확인용으로 쓴다.',
       inputSchema: { type: 'object', properties: {} },
@@ -257,8 +260,8 @@ function buildTools(s: Settings, state: { created: number; actions: unknown[]; r
           .order('scheduled_at', { ascending: true })
         return record('get_pending_targets', {}, JSON.stringify(data ?? []))
       },
-    }),
-    betaTool({
+    },
+    {
       name: 'suggest_topics',
       description:
         '승인 모드에서 초안 대신 주제를 제안한다. 사용자가 이 중에서 골라 초안 작성을 요청한다. 리서치로 확인된 트렌드만 제안할 것.',
@@ -293,8 +296,8 @@ function buildTools(s: Settings, state: { created: number; actions: unknown[]; r
         if (error) return record('suggest_topics', topics, `저장 실패: ${error.message}`)
         return record('suggest_topics', topics, `주제 ${rows.length}개를 제안했다. 사용자 선택을 기다린다.`)
       },
-    }),
-    betaTool({
+    },
+    {
       name: 'record_lesson',
       description:
         '지난 행동과 지표 변화를 대조해 얻은 교훈을 한 건 기록한다. 다음 사이클 프롬프트에 주입된다. 데이터로 뒷받침되는 교훈만 기록할 것.',
@@ -316,8 +319,8 @@ function buildTools(s: Settings, state: { created: number; actions: unknown[]; r
         if (error) return record('record_lesson', { lesson }, `기록 실패: ${error.message}`)
         return record('record_lesson', { lesson }, '교훈을 기록했다.')
       },
-    }),
-    betaTool({
+    },
+    {
       name: 'update_playbook',
       description:
         '채널 전략 플레이북 전문을 다시 쓴다(새 버전으로 저장, 이전 버전 보존). 교훈이 쌓여 기존 전략과 어긋날 때만 쓸 것.',
@@ -346,7 +349,7 @@ function buildTools(s: Settings, state: { created: number; actions: unknown[]; r
         if (error) return record('update_playbook', { content }, `저장 실패: ${error.message}`)
         return record('update_playbook', { content }, `플레이북 v${version}으로 갱신했다.`)
       },
-    }),
+    },
   ]
 }
 
@@ -391,7 +394,6 @@ async function runForChannel(s: Settings, topic: Topic | null): Promise<string> 
 
   const state = { created: 0, actions: [] as unknown[], runId }
   try {
-    const anthropic = new Anthropic({ apiKey: Deno.env.get('ANTHROPIC_API_KEY')! })
     const tools = buildTools(s, state)
     const memory = await loadMemory(s.channel_id)
 
@@ -419,33 +421,12 @@ ${
     }
 지표를 확인하고, 판단하고, 행동한 뒤 보고해라.`
 
-    const runner = anthropic.beta.messages.toolRunner({
-      model: 'claude-opus-5',
-      max_tokens: 16000,
+    const report = await runGeminiAgent({
       system: SYSTEM,
+      prompt,
       tools,
-      max_iterations: 30, // 폭주 방지
-      messages: [{ role: 'user', content: prompt }],
+      maxIterations: 30, // 폭주 방지
     })
-
-    // 서버 도구가 pause_turn으로 멈추면 이어서 재개한다 (안전망 — 현재는 서버 도구 없음)
-    // deno-lint-ignore no-explicit-any
-    let message: any = null
-    for await (const m of runner) {
-      message = m
-      if (m.stop_reason === 'pause_turn') {
-        runner.pushMessages({ role: 'assistant', content: m.content })
-      }
-    }
-    if (!message) throw new Error('에이전트가 응답하지 않았습니다')
-
-    if (message.stop_reason === 'refusal') {
-      throw new Error('요청이 안전 정책으로 거부되었습니다. 페르소나 설정을 확인해주세요.')
-    }
-    const report = message.content
-      .filter((b: { type: string }) => b.type === 'text')
-      .map((b: { text: string }) => b.text)
-      .join('')
 
     await db
       .from('autopilot_runs')
